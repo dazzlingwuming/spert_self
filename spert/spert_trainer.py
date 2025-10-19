@@ -49,11 +49,11 @@ class SpERTTrainer(BaseTrainer):
                                         args.neg_relation_count, args.max_span_size, self._logger)
         train_dataset = input_reader.read(train_path, train_label)
         validation_dataset = input_reader.read(valid_path, valid_label)
-        self._log_datasets(input_reader)
+        self._log_datasets(input_reader)#日志打印
 
         train_sample_count = train_dataset.document_count
-        updates_epoch = train_sample_count // args.train_batch_size
-        updates_total = updates_epoch * args.epochs
+        updates_epoch = train_sample_count // args.train_batch_size#一个epoch的更新次数
+        updates_total = updates_epoch * args.epochs#总的更新次数
 
         self._logger.info("Updates per epoch: %s" % updates_epoch)
         self._logger.info("Updates total: %s" % updates_total)
@@ -72,25 +72,25 @@ class SpERTTrainer(BaseTrainer):
         # create optimizer
         optimizer_params = self._get_optimizer_params(model)
         optimizer = AdamW(optimizer_params, lr=args.lr, weight_decay=args.weight_decay, correct_bias=False)
-        # create scheduler
+        # create scheduler 学习率调度采用线性预热和线性衰减
         scheduler = transformers.get_linear_schedule_with_warmup(optimizer,
                                                                  num_warmup_steps=args.lr_warmup * updates_total,
                                                                  num_training_steps=updates_total)
         # create loss function
-        rel_criterion = torch.nn.BCEWithLogitsLoss(reduction='none')
-        entity_criterion = torch.nn.CrossEntropyLoss(reduction='none')
+        rel_criterion = torch.nn.BCEWithLogitsLoss(reduction='none')#关系分类二分类交叉熵损失函数，这里使用这个损失是因为关系分类是多标签分类问题
+        entity_criterion = torch.nn.CrossEntropyLoss(reduction='none')#实体识别多分类交叉熵损失函数
         compute_loss = SpERTLoss(rel_criterion, entity_criterion, model, optimizer, scheduler, args.max_grad_norm)
 
-        # eval validation set
+        # eval validation set 开始训练前评估
         if args.init_eval:
             self._eval(model, validation_dataset, input_reader, 0, updates_epoch)
 
-        # train
+        # train 开始训练
         for epoch in range(args.epochs):
             # train epoch
             self._train_epoch(model, compute_loss, optimizer, train_dataset, updates_epoch, epoch)
 
-            # eval validation sets
+            # eval validation sets 每个epoch结束后评估
             if not args.final_eval or (epoch == args.epochs - 1):
                 self._eval(model, validation_dataset, input_reader, epoch + 1, updates_epoch)
 
@@ -146,10 +146,10 @@ class SpERTTrainer(BaseTrainer):
         self._predict(model, dataset, input_reader)
 
     def _load_model(self, input_reader):
-        model_class = models.get_model(self._args.model_type)
+        model_class = models.get_model(self._args.model_type)#获取模型类
 
-        config = BertConfig.from_pretrained(self._args.model_path, cache_dir=self._args.cache_path)
-        util.check_version(config, model_class, self._args.model_path)
+        config = BertConfig.from_pretrained(self._args.model_path, cache_dir=self._args.cache_path)#加载预训练模型的配置文件
+        util.check_version(config, model_class, self._args.model_path)#检查版本
 
         config.spert_version = model_class.VERSION
         model = model_class.from_pretrained(self._args.model_path,
@@ -162,7 +162,7 @@ class SpERTTrainer(BaseTrainer):
                                             prop_drop=self._args.prop_drop,
                                             size_embedding=self._args.size_embedding,
                                             freeze_transformer=self._args.freeze_transformer,
-                                            cache_dir=self._args.cache_path)
+                                            cache_dir=self._args.cache_path)#加载预训练模型，模型恢复
 
         return model
 
