@@ -10,12 +10,12 @@ class Loss(ABC):
 
 class SpERTLoss(Loss):
     def __init__(self, rel_criterion, entity_criterion, model, optimizer, scheduler, max_grad_norm):
-        self._rel_criterion = rel_criterion
-        self._entity_criterion = entity_criterion
-        self._model = model
-        self._optimizer = optimizer
-        self._scheduler = scheduler
-        self._max_grad_norm = max_grad_norm
+        self._rel_criterion = rel_criterion#关系损失函数
+        self._entity_criterion = entity_criterion#实体损失函数
+        self._model = model#模型
+        self._optimizer = optimizer#优化器
+        self._scheduler = scheduler#学习率调度器
+        self._max_grad_norm = max_grad_norm#最大梯度范数
 
     def compute(self, entity_logits, rel_logits, entity_types, rel_types, entity_sample_masks, rel_sample_masks):
         # entity loss
