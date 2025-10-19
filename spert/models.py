@@ -30,24 +30,26 @@ class SpERT(BertPreTrainedModel):
                  size_embedding: int, prop_drop: float, freeze_transformer: bool, max_pairs: int = 100):
         super(SpERT, self).__init__(config)
 
-        # BERT model
+        # BERT model创建基础的语言模型，将输入的token ids和attention masks传入BERT模型，获取上下文相关的token嵌入表示。
         self.bert = BertModel(config)
 
         # layers
+        # [BERT输出的隐藏状态维度的3倍加上大小嵌入维度的2倍，映射到关系类型的数量]
         self.rel_classifier = nn.Linear(config.hidden_size * 3 + size_embedding * 2, relation_types)
+        #实体分类器：将实体候选表示映射到实体类型的数量
         self.entity_classifier = nn.Linear(config.hidden_size * 2 + size_embedding, entity_types)
         self.size_embeddings = nn.Embedding(100, size_embedding)
         self.dropout = nn.Dropout(prop_drop)
 
-        self._cls_token = cls_token
-        self._relation_types = relation_types
-        self._entity_types = entity_types
-        self._max_pairs = max_pairs
+        self._cls_token = cls_token#cls_token的id
+        self._relation_types = relation_types#关系类型数量
+        self._entity_types = entity_types#实体类型数量
+        self._max_pairs = max_pairs#每次处理的最大关系对数量
 
-        # weight initialization
+        # weight initialization 参数初始化
         self.init_weights()
 
-        if freeze_transformer:
+        if freeze_transformer:#是否冻结BERT模型的参数，不进行更新
             print("Freeze transformer weights")
 
             # freeze all transformer weights
