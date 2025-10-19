@@ -1,0 +1,13 @@
+spert:
+        1.github下载：https://github.com/lavis-nlp/spert
+        2.项目导入pycharm
+        3.下载数据集： fetch_datasets.sh
+        4.训练：python train.py --config
+    代码说明：
+        1.configs文件夹/bert_base.json: bert_base模型配置文件
+        2.data文件夹/: 数据集存放路径
+        3.scripts文件夹/: 存放数据集下载脚本
+        4.spert文件夹/: 模型代码
+        5.args.py: 参数配置文件
+        6.config_reader.py: 配置文件读取
+        7.spert.py：模型运用脚本
