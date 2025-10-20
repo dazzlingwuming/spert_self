@@ -183,16 +183,21 @@ class SpERTTrainer(BaseTrainer):
             model.train()
             batch = util.to_device(batch, self._device)
 
-            # forward step
-            entity_logits, rel_logits = model(encodings=batch['encodings'], context_masks=batch['context_masks'],
-                                              entity_masks=batch['entity_masks'], entity_sizes=batch['entity_sizes'],
-                                              relations=batch['rels'], rel_masks=batch['rel_masks'])
+            # forward step 这里是得到实体和关系的logits
+            entity_logits, rel_logits = model(encodings=batch['encodings'],#大小(batch_size, context_size)
+                                              context_masks=batch['context_masks'],#大小(batch_size, context_size)
+                                              entity_masks=batch['entity_masks'], #大小(batch_size, max_entity_count, context_size)
+                                              entity_sizes=batch['entity_sizes'],#大小(batch_size, max_entity_count)
+                                              relations=batch['rels'], #大小(batch_size, max_rel_count, 2)
+                                              rel_masks=batch['rel_masks'])#大小(batch_size, max_rel_count, context_size)
 
-            # compute loss and optimize parameters
-            batch_loss = compute_loss.compute(entity_logits=entity_logits, rel_logits=rel_logits,
-                                              rel_types=batch['rel_types'], entity_types=batch['entity_types'],
-                                              entity_sample_masks=batch['entity_sample_masks'],
-                                              rel_sample_masks=batch['rel_sample_masks'])
+            # compute loss and optimize parameters 这里是计算损失
+            batch_loss = compute_loss.compute(entity_logits=entity_logits, #这是实体分类的logits，大小(batch_size, max_entity_count, entity_type_count)
+                                              rel_logits=rel_logits,#这是关系分类的logits，大小(batch_size, max_rel_count, rel_type_count-1)
+                                              rel_types=batch['rel_types'], #关系类型的多标签二进制表示，也就是原始值，大小(batch_size, max_rel_count, rel_type_count-1)
+                                              entity_types=batch['entity_types'],#实体类型索引，原始值，大小(batch_size, max_entity_count)
+                                              entity_sample_masks=batch['entity_sample_masks'],#实体样本掩码，大小(batch_size, max_entity_count)
+                                              rel_sample_masks=batch['rel_sample_masks'])#关系样本掩码，大小(batch_size, max_rel_count)
 
             # logging
             iteration += 1
