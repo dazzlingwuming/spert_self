@@ -155,11 +155,11 @@ def extend_tensor(tensor, extended_shape, fill=0):
 def padded_stack(tensors, padding=0):
     dim_count = len(tensors[0].shape)
 
-    max_shape = [max([t.shape[d] for t in tensors]) for d in range(dim_count)]
+    max_shape = [max([t.shape[d] for t in tensors]) for d in range(dim_count)]#计算每个维度的最大长度，用于填充
     padded_tensors = []
 
     for t in tensors:
-        e = extend_tensor(t, max_shape, fill=padding)
+        e = extend_tensor(t, max_shape, fill=padding)#填充张量
         padded_tensors.append(e)
 
     stacked = torch.stack(padded_tensors)
