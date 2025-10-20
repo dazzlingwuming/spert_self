@@ -9,14 +9,14 @@ from spert import util
 
 
 def get_token(h: torch.tensor, x: torch.tensor, token: int):
-    """ Get specific token embedding (e.g. [CLS]) """
-    emb_size = h.shape[-1]
+    """ Get specific token embedding (e.g. [CLS]) 这是一个辅助函数，用于从BERT模型的隐藏状态中提取特定token（例如[CLS]）的嵌入表示。 """
+    emb_size = h.shape[-1]#隐藏状态的最后一个维度大小，也就是嵌入维度
 
-    token_h = h.view(-1, emb_size)
-    flat = x.contiguous().view(-1)
+    token_h = h.view(-1, emb_size)#将隐藏状态张量展平为二维张量，形状为(total_tokens, emb_size)
+    flat = x.contiguous().view(-1)#[N, context_size]-->[N*context_size,]
 
     # get contextualized embedding of given token
-    token_h = token_h[flat == token, :]
+    token_h = token_h[flat == token, :]#从展平的输入张量中找到所有等于指定token的索引，并从展平的隐藏状态张量中提取对应的嵌入表示，一般取出的是CLS的表示，因为bert模型的第一个token是CLS，输出的特征可以表示全文的语义信息
 
     return token_h
 
@@ -34,10 +34,11 @@ class SpERT(BertPreTrainedModel):
         self.bert = BertModel(config)
 
         # layers
-        # [BERT输出的隐藏状态维度的3倍加上大小嵌入维度的2倍，映射到关系类型的数量]
+        # [BERT输出的隐藏状态维度的3倍加上大小嵌入维度的2倍，映射到关系类型的数量]这里就是一个实体，一个宽度编码，一个全局上下文
         self.rel_classifier = nn.Linear(config.hidden_size * 3 + size_embedding * 2, relation_types)
         #实体分类器：将实体候选表示映射到实体类型的数量
         self.entity_classifier = nn.Linear(config.hidden_size * 2 + size_embedding, entity_types)
+        #实体大小嵌入：将实体的大小（长度）映射到一个固定维度的嵌入表示
         self.size_embeddings = nn.Embedding(100, size_embedding)
         self.dropout = nn.Dropout(prop_drop)
 
@@ -58,15 +59,25 @@ class SpERT(BertPreTrainedModel):
 
     def _forward_train(self, encodings: torch.tensor, context_masks: torch.tensor, entity_masks: torch.tensor,
                        entity_sizes: torch.tensor, relations: torch.tensor, rel_masks: torch.tensor):
+        '''
+        encodings:原始的token编码，形状为(context_size,)
+        context_masks:上下文掩码，形状为(context_size,)
+        entity_masks:实体掩码，表示对每一个实体进行掩码，包括正样本和负样本，形状为(num_entities, context_size)，如果某个位置属于实体范围内则为1，否则为0，并且负样本实体的掩码全部为0
+        entity_sizes:实体大小，表示总共有多少个实体且每个样本的长度，形状为(num_entities,)
+
+        rels:关系对索引，形状为(num_relations, 2)，包括正样本和负样本，每个关系对由两个实体的索引组成
+        rel_masks:关系掩码，形状为(num_relations, context_size)，每一个关系对应一个掩码，表示关系对应的文本区域进行掩码（两个实体之间的文本区域之间的所以位置为1）
+        '''
         # get contextualized token embeddings from last transformer layer
         context_masks = context_masks.float()
-        h = self.bert(input_ids=encodings, attention_mask=context_masks)['last_hidden_state']
+        h = self.bert(input_ids=encodings, attention_mask=context_masks)['last_hidden_state']#这里获取BERT模型的最后一层隐藏状态
 
         batch_size = encodings.shape[0]
 
         # classify entities
-        size_embeddings = self.size_embeddings(entity_sizes)  # embed entity candidate sizes
-        entity_clf, entity_spans_pool = self._classify_entities(encodings, h, entity_masks, size_embeddings)
+        #输入特征是实体掩码和实体大小嵌入，输出是实体分类的logits和实体候选的池化表示
+        size_embeddings = self.size_embeddings(entity_sizes)  # embed entity candidate sizes 这里是将实体的大小进行嵌入表示
+        entity_clf, entity_spans_pool = self._classify_entities(encodings, h, entity_masks, size_embeddings)#得到实体分类的logits和实体候选的池化表示
 
         # classify relations
         h_large = h.unsqueeze(1).repeat(1, max(min(relations.shape[1], self._max_pairs), 1), 1, 1)
@@ -123,48 +134,49 @@ class SpERT(BertPreTrainedModel):
         return entity_clf, rel_clf, relations
 
     def _classify_entities(self, encodings, h, entity_masks, size_embeddings):
-        # max pool entity candidate spans
-        m = (entity_masks.unsqueeze(-1) == 0).float() * (-1e30)
-        entity_spans_pool = m + h.unsqueeze(1).repeat(1, entity_masks.shape[1], 1, 1)
-        entity_spans_pool = entity_spans_pool.max(dim=2)[0]
+        # max pool entity candidate spans 这里需要将[N, num_entities, context_size]的实体掩码转换为[N, num_entities, context_size, 1]，然后与h[N, context_size, hidden_size]进行广播相加，最后在context_size维度上进行max pooling，得到实体候选的池化表示
+        m = (entity_masks.unsqueeze(-1) == 0).float() * (-1e30)#将实体掩码中为0的位置设置为一个很小的值，为1的地方设置为0[N, num_entities, context_size]-->[N, num_entities, context_size, 1]
+        entity_spans_pool = m + h.unsqueeze(1).repeat(1, entity_masks.shape[1], 1, 1)#h[N, context_size, hidden_size]-->[N, num_entities, context_size, hidden_size],这里表示n个批次，每一个实体的特征都是T*128的特征，然后与实体掩码进行广播相加
+        #相加后的结果是对bert的实体位置进行保留，非实体位置被设置为一个很小的值
+        entity_spans_pool = entity_spans_pool.max(dim=2)[0]#针对每一个实体的context_size维度，也就是时间维度进行max pooling，得到实体候选的池化表示[N, num_entities, hidden_size],
 
         # get cls token as candidate context representation
-        entity_ctx = get_token(h, encodings, self._cls_token)
+        entity_ctx = get_token(h, encodings, self._cls_token)#从BERT的隐藏状态中提取CLS token的嵌入表示，作为实体候选的上下文表示[N, hidden_size]
 
-        # create candidate representations including context, max pooled span and size embedding
+        # create candidate representations including context, max pooled span and size embedding ，这里将实体候选的基于cls提取的上下文特征、实体范围的池化表示特征和实体大小嵌入特征进行拼接，得到最终的实体候选表示
         entity_repr = torch.cat([entity_ctx.unsqueeze(1).repeat(1, entity_spans_pool.shape[1], 1),
                                  entity_spans_pool, size_embeddings], dim=2)
         entity_repr = self.dropout(entity_repr)
 
-        # classify entity candidates
+        # classify entity candidates 通过全连接得到每一个实体属于各个实体类型的置信度
         entity_clf = self.entity_classifier(entity_repr)
 
         return entity_clf, entity_spans_pool
 
     def _classify_relations(self, entity_spans, size_embeddings, relations, rel_masks, h, chunk_start):
-        batch_size = relations.shape[0]
+        batch_size = relations.shape[0] #获取批次大小
 
         # create chunks if necessary
-        if relations.shape[1] > self._max_pairs:
+        if relations.shape[1] > self._max_pairs: #如果关系对的数量超过了最大处理数量，就进行分块处理
             relations = relations[:, chunk_start:chunk_start + self._max_pairs]
             rel_masks = rel_masks[:, chunk_start:chunk_start + self._max_pairs]
             h = h[:, :relations.shape[1], :]
 
-        # get pairs of entity candidate representations
-        entity_pairs = util.batch_index(entity_spans, relations)
-        entity_pairs = entity_pairs.view(batch_size, entity_pairs.shape[1], -1)
+        # get pairs of entity candidate representations  这里相当于论文里面的红色特征部分 获取对应的实体对的表示
+        entity_pairs = util.batch_index(entity_spans, relations)#[N,num_entity_pairs, hidden_size] 和[N, num_entity_pairs, 2],这里是根据关系对的实体索引，从实体候选表示中提取对应的实体表示特征，变成[N, num_entity_pairs, 2, hidden_size]
+        entity_pairs = entity_pairs.view(batch_size, entity_pairs.shape[1], -1)#将实体对的表示进行展平，变成[N, num_entity_pairs, hidden_size*2]
 
-        # get corresponding size embeddings
+        # get corresponding size embeddings 这里相当于论文里面的蓝色特征部分，获取对应的实体对的大小嵌入表示
         size_pair_embeddings = util.batch_index(size_embeddings, relations)
         size_pair_embeddings = size_pair_embeddings.view(batch_size, size_pair_embeddings.shape[1], -1)
 
         # relation context (context between entity candidate pair)
-        # mask non entity candidate tokens
+        # mask non entity candidate tokens  这里相当于论文里面的黄色特征部分，获取实体对之间的上下文表示 这里的方法和刚才的提取实体候选的池化表示类似
         m = ((rel_masks == 0).float() * (-1e30)).unsqueeze(-1)
         rel_ctx = m + h
         # max pooling
         rel_ctx = rel_ctx.max(dim=2)[0]
-        # set the context vector of neighboring or adjacent entity candidates to zero
+        # set the context vector of neighboring or adjacent entity candidates to zero,需要注意对于负样本来说，实体对之间没有上下文，所以需要将这些位置的上下文表示设置为0
         rel_ctx[rel_masks.to(torch.uint8).any(-1) == 0] = 0
 
         # create relation candidate representations including context, max pooled entity candidate pairs
