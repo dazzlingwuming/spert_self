@@ -123,6 +123,19 @@ def create_train_sample(doc, neg_entity_count: int, neg_rel_count: int, max_span
         rel_types = torch.zeros([1, rel_type_count-1], dtype=torch.float32)
         rel_masks = torch.zeros([1, context_size], dtype=torch.bool)
         rel_sample_masks = torch.zeros([1], dtype=torch.bool)
+    '''
+    encodings:原始的token编码，形状为(context_size,)
+    context_masks:上下文掩码，形状为(context_size,)
+    entity_masks:实体掩码，表示对每一个实体进行掩码，包括正样本和负样本，形状为(num_entities, context_size)，如果某个位置属于实体范围内则为1，否则为0，并且负样本实体的掩码全部为0
+    entity_sizes:实体大小，表示总共有多少个实体且每个样本的长度，形状为(num_entities,)
+    entity_types:实体类型索引，形状为(num_entities,)
+    entity_sample_masks:实体样本掩码，形状为(num_entities,)
+    
+    rels:关系对索引，形状为(num_relations, 2)，包括正样本和负样本，每个关系对由两个实体的索引组成
+    rel_masks:关系掩码，形状为(num_relations, context_size)，每一个关系对应一个掩码，表示关系对应的文本区域进行掩码（两个实体之间的文本区域之间的所以位置为1）
+    rel_types:关系类型的多标签二进制表示，形状为(num_relations, rel_type_count-1)，eg：[0,1,0,1]表示该关系同时属于类型1和类型3,所以负样本的关系类型全部为0
+    rel_sample_masks:关系样本掩码，形状为(num_relations,)
+    '''
 
     return dict(encodings=encodings, context_masks=context_masks, entity_masks=entity_masks,
                 entity_sizes=entity_sizes, entity_types=entity_types,
@@ -193,14 +206,13 @@ def create_rel_mask(s1, s2, context_size):
 
 def collate_fn_padding(batch):
     padded_batch = dict()
-    keys = batch[0].keys()
+    keys = batch[0].keys()#提取字典的键
 
     for key in keys:
-        samples = [s[key] for s in batch]
-
+        samples = [s[key] for s in batch]#提取每个样本中对应键的值
         if not batch[0][key].shape:
             padded_batch[key] = torch.stack(samples)
         else:
-            padded_batch[key] = util.padded_stack([s[key] for s in batch])
+            padded_batch[key] = util.padded_stack([s[key] for s in batch])#对样本进行填充堆叠，包括多维数据
 
     return padded_batch
