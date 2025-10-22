@@ -7,8 +7,9 @@ from tqdm import tqdm
 from transformers import BertTokenizer
 
 from spert import util
-from spert.entities import Dataset, EntityType, RelationType, Entity, Relation, Document
+from spert.entities import Dataset, EntityType, RelationType, Entity, Relation, Document, Token
 from spert.opt import spacy
+from spert.util import creat_text2token
 
 
 class BaseInputReader(ABC):
@@ -193,7 +194,7 @@ class JsonPredictionInputReader(BaseInputReader):
         super().__init__(types_path, tokenizer, max_span_size=max_span_size, logger=logger)
         self._spacy_model = spacy_model
 
-        self._nlp = spacy.load(spacy_model) if spacy is not None and spacy_model is not None else None
+        self._nlp = creat_text2token(self._spacy_model)
 
     def read(self, dataset_path, dataset_label):
         dataset = Dataset(dataset_label, self._relation_types, self._entity_types, self._neg_entity_count,
@@ -213,15 +214,21 @@ class JsonPredictionInputReader(BaseInputReader):
         elif type(document) == dict:
             jtokens = document['tokens']
         else:
-            jtokens = [t.text for t in self._nlp(document)]
+            jtokens = self._nlp(document)
 
         # parse tokens
         doc_tokens, doc_encoding = _parse_tokens(jtokens, dataset, self._tokenizer)
 
         # create document
-        document = dataset.create_document(doc_tokens, [], [], doc_encoding)
+        if dataset is None:
+            document = Document(0 , doc_tokens, [], [], doc_encoding)
+        else:
+            document = dataset.create_document(doc_tokens, [], [], doc_encoding)
 
         return document
+    # 解析输入的文本，返回解析后的token列表和编码列表,不用dataset参数
+    def parse_token(self , document) :
+        return self._parse_document(document, None)
 
 
 def _parse_tokens(jtokens, dataset, tokenizer):
@@ -237,8 +244,10 @@ def _parse_tokens(jtokens, dataset, tokenizer):
         if not token_encoding:
             token_encoding = [tokenizer.convert_tokens_to_ids('[UNK]')]
         span_start, span_end = (len(doc_encoding), len(doc_encoding) + len(token_encoding))
-
-        token = dataset.create_token(i, span_start, span_end, token_phrase)
+        if dataset is None:
+            token =Token(0, i,span_start, span_end, token_phrase)
+        else:
+            token = dataset.create_token(i, span_start, span_end, token_phrase)
 
         doc_tokens.append(token)
         doc_encoding += token_encoding
