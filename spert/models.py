@@ -98,16 +98,16 @@ class SpERT(BertPreTrainedModel):
                            entity_sizes: torch.tensor, entity_spans: torch.tensor, entity_sample_masks: torch.tensor):
         # get contextualized token embeddings from last transformer layer
         context_masks = context_masks.float()
-        h = self.bert(input_ids=encodings, attention_mask=context_masks)['last_hidden_state']
+        h = self.bert(input_ids=encodings, attention_mask=context_masks)['last_hidden_state']#获取BERT模型的最后一层隐藏状态
 
-        batch_size = encodings.shape[0]
-        ctx_size = context_masks.shape[-1]
+        batch_size = encodings.shape[0]#获取批次大小
+        ctx_size = context_masks.shape[-1]#获取上下文的长度
 
         # classify entities
-        size_embeddings = self.size_embeddings(entity_sizes)  # embed entity candidate sizes
-        entity_clf, entity_spans_pool = self._classify_entities(encodings, h, entity_masks, size_embeddings)
+        size_embeddings = self.size_embeddings(entity_sizes) # embed entity candidate sizes 这里是将实体的大小进行嵌入表示
+        entity_clf, entity_spans_pool = self._classify_entities(encodings, h, entity_masks, size_embeddings)#得到实体分类的logits和实体候选的池化表示
 
-        # ignore entity candidates that do not constitute an actual entity for relations (based on classifier)
+        # ignore entity candidates that do not constitute an actual entity for relations (based on classifier)  这一步是根据实体分类的结果，过滤掉那些不被分类为实体的候选实体，只保留被分类为实体的候选实体，用于后续的关系分类
         relations, rel_masks, rel_sample_masks = self._filter_spans(entity_clf, entity_spans,
                                                                     entity_sample_masks, ctx_size)
 
@@ -117,7 +117,7 @@ class SpERT(BertPreTrainedModel):
             self.rel_classifier.weight.device)
 
         # obtain relation logits
-        # chunk processing to reduce memory usage
+        # chunk processing to reduce memory usage 因为关系对的数量可能非常大，所以这里采用分块处理的方式，逐块对关系对进行分类
         for i in range(0, relations.shape[1], self._max_pairs):
             # classify relation candidates
             chunk_rel_logits = self._classify_relations(entity_spans_pool, size_embeddings,
@@ -190,7 +190,7 @@ class SpERT(BertPreTrainedModel):
 
     def _filter_spans(self, entity_clf, entity_spans, entity_sample_masks, ctx_size):
         batch_size = entity_clf.shape[0]
-        entity_logits_max = entity_clf.argmax(dim=-1) * entity_sample_masks.long()  # get entity type (including none)
+        entity_logits_max = entity_clf.argmax(dim=-1) * entity_sample_masks.long()  # get entity type (including none) 这里是获取每一个实体候选的最大置信度的实体类型索引，并且乘以实体样本掩码，过滤掉那些不被分类为实体的候选实体
         batch_relations = []
         batch_rel_masks = []
         batch_rel_sample_masks = []
@@ -201,11 +201,11 @@ class SpERT(BertPreTrainedModel):
             sample_masks = []
 
             # get spans classified as entities
-            non_zero_indices = (entity_logits_max[i] != 0).nonzero().view(-1)
-            non_zero_spans = entity_spans[i][non_zero_indices].tolist()
-            non_zero_indices = non_zero_indices.tolist()
+            non_zero_indices = (entity_logits_max[i] != 0).nonzero().view(-1)#获取被分类为实体的候选实体的索引，这里假设实体类型索引0表示非实体，所以非零索引表示被分类为实体的候选实体
+            non_zero_spans = entity_spans[i][non_zero_indices].tolist()#获取被分类为实体的候选实体的跨度信息
+            non_zero_indices = non_zero_indices.tolist()#将张量转换为列表
 
-            # create relations and masks
+            # create relations and masks 将被分类为实体的候选实体两两组合，形成关系对，并且为每一个关系对创建对应的关系掩码
             for i1, s1 in zip(non_zero_indices, non_zero_spans):
                 for i2, s2 in zip(non_zero_indices, non_zero_spans):
                     if i1 != i2:
@@ -224,7 +224,7 @@ class SpERT(BertPreTrainedModel):
                 batch_rel_masks.append(torch.stack(rel_masks))
                 batch_rel_sample_masks.append(torch.tensor(sample_masks, dtype=torch.bool))
 
-        # stack
+        # stack 填充批次中的关系对、关系掩码和关系样本掩码，使得它们具有相同的长度
         device = self.rel_classifier.weight.device
         batch_relations = util.padded_stack(batch_relations).to(device)
         batch_rel_masks = util.padded_stack(batch_rel_masks).to(device)
@@ -248,3 +248,24 @@ _MODELS = {
 
 def get_model(name):
     return _MODELS[name]
+
+def load_model(self,tokenizer, input_reader):
+    model_class = get_model(self.model_type)#获取模型类
+
+    config = BertConfig.from_pretrained(self.model_path, cache_dir=self.cache_path)#加载预训练模型的配置文件
+    util.check_version(config, model_class, self.model_path)#检查版本
+
+    config.spert_version = model_class.VERSION
+    model = model_class.from_pretrained(self.model_path,
+                                        config=config,
+                                        # SpERT model parameters
+                                        cls_token=tokenizer.convert_tokens_to_ids('[CLS]'),
+                                        relation_types=input_reader.relation_type_count - 1,
+                                        entity_types=input_reader.entity_type_count,
+                                        max_pairs=self.max_pairs,
+                                        prop_drop=self.prop_drop,
+                                        size_embedding=self.size_embedding,
+                                        freeze_transformer=self.freeze_transformer,
+                                        cache_dir=self.cache_path)#加载预训练模型，模型恢复
+
+    return model
