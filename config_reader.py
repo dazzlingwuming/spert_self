@@ -64,31 +64,34 @@ def _yield_configs(arg_parser, args, verbose=True):
     _print = (lambda x: print(x)) if verbose else lambda x: x
 
     if args.config:
-        config = _read_config(args.config)
-
-        for run_repeat, run_config in config:
-            print("-" * 50)
-            print("Config:")
-            print(run_config)
-
-            args_copy = copy.deepcopy(args)
-            config_list = _convert_config(run_config)
-            run_args = arg_parser.parse_args(config_list, namespace=args_copy)
-            run_args_dict = vars(run_args)
-
-            # set boolean values
-            for k, v in run_config.items():
-                if v.lower() == 'false':
-                    run_args_dict[k] = False
-
-            print("Repeat %s times" % run_repeat)
-            print("-" * 50)
-
-            for iteration in range(run_repeat):
-                _print("Iteration %s" % iteration)
-                _print("-" * 50)
-
-                yield run_args, run_config, run_repeat
+        return _yield_configs_from_file(arg_parser,args)
 
     else:
         yield args, None, None
+
+def _yield_configs_from_file(arg_parser, args, _print=lambda x: print(x)):
+    config = _read_config(args.config)
+
+    for run_repeat, run_config in config:
+        print("-" * 50)
+        print("Config:")
+        print(run_config)
+
+        args_copy = copy.deepcopy(args)
+        config_list = _convert_config(run_config)
+        run_args = arg_parser.parse_args(config_list, namespace=args_copy)
+        run_args_dict = vars(run_args)
+
+        # set boolean values
+        for k, v in run_config.items():
+            if v.lower() == 'false':
+                run_args_dict[k] = False
+
+        print("Repeat %s times" % run_repeat)
+        print("-" * 50)
+
+        for iteration in range(run_repeat):
+            _print("Iteration %s" % iteration)
+            _print("-" * 50)
+
+            yield run_args, run_config, run_repeat
