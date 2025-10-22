@@ -17,6 +17,8 @@ from spert.evaluator import Evaluator
 from spert.input_reader import JsonInputReader, BaseInputReader
 from spert.loss import SpERTLoss, Loss
 from tqdm import tqdm
+
+from spert.models import load_model
 from spert.trainer import BaseTrainer
 
 SCRIPT_PATH = os.path.dirname(os.path.realpath(__file__))
@@ -134,7 +136,7 @@ class SpERTTrainer(BaseTrainer):
     def predict(self, dataset_path: str, types_path: str, input_reader_cls: Type[BaseInputReader]):
         args = self._args
 
-        # read datasets
+        # read datasets 数据加载
         input_reader = input_reader_cls(types_path, self._tokenizer,
                                         max_span_size=args.max_span_size,
                                         spacy_model=args.spacy_model)
@@ -146,25 +148,25 @@ class SpERTTrainer(BaseTrainer):
         self._predict(model, dataset, input_reader)
 
     def _load_model(self, input_reader):
-        model_class = models.get_model(self._args.model_type)#获取模型类
+        # model_class = models.get_model(self._args.model_type)#获取模型类
+        #
+        # config = BertConfig.from_pretrained(self._args.model_path, cache_dir=self._args.cache_path)#加载预训练模型的配置文件
+        # util.check_version(config, model_class, self._args.model_path)#检查版本
+        #
+        # config.spert_version = model_class.VERSION
+        # model = model_class.from_pretrained(self._args.model_path,
+        #                                     config=config,
+        #                                     # SpERT model parameters
+        #                                     cls_token=self._tokenizer.convert_tokens_to_ids('[CLS]'),
+        #                                     relation_types=input_reader.relation_type_count - 1,
+        #                                     entity_types=input_reader.entity_type_count,
+        #                                     max_pairs=self._args.max_pairs,
+        #                                     prop_drop=self._args.prop_drop,
+        #                                     size_embedding=self._args.size_embedding,
+        #                                     freeze_transformer=self._args.freeze_transformer,
+        #                                     cache_dir=self._args.cache_path)#加载预训练模型，模型恢复
 
-        config = BertConfig.from_pretrained(self._args.model_path, cache_dir=self._args.cache_path)#加载预训练模型的配置文件
-        util.check_version(config, model_class, self._args.model_path)#检查版本
-
-        config.spert_version = model_class.VERSION
-        model = model_class.from_pretrained(self._args.model_path,
-                                            config=config,
-                                            # SpERT model parameters
-                                            cls_token=self._tokenizer.convert_tokens_to_ids('[CLS]'),
-                                            relation_types=input_reader.relation_type_count - 1,
-                                            entity_types=input_reader.entity_type_count,
-                                            max_pairs=self._args.max_pairs,
-                                            prop_drop=self._args.prop_drop,
-                                            size_embedding=self._args.size_embedding,
-                                            freeze_transformer=self._args.freeze_transformer,
-                                            cache_dir=self._args.cache_path)#加载预训练模型，模型恢复
-
-        return model
+        return load_model(self._args, self._tokenizer,input_reader)
 
     def _train_epoch(self, model: torch.nn.Module, compute_loss: Loss, optimizer: Optimizer, dataset: Dataset,
                      updates_epoch: int, epoch: int):
@@ -216,14 +218,14 @@ class SpERTTrainer(BaseTrainer):
             # currently no multi GPU support during evaluation
             model = model.module
 
-        # create evaluator
+        # create evaluator 构建评估器
         predictions_path = os.path.join(self._log_path, f'predictions_{dataset.label}_epoch_{epoch}.json')
         examples_path = os.path.join(self._log_path, f'examples_%s_{dataset.label}_epoch_{epoch}.html')
         evaluator = Evaluator(dataset, input_reader, self._tokenizer,
                               self._args.rel_filter_threshold, self._args.no_overlapping, predictions_path,
                               examples_path, self._args.example_count)
 
-        # create data loader
+        # create data loader 创建验证数据加载器
         dataset.switch_mode(Dataset.EVAL_MODE)
         data_loader = DataLoader(dataset, batch_size=self._args.eval_batch_size, shuffle=False, drop_last=False,
                                  num_workers=self._args.sampling_processes, collate_fn=sampling.collate_fn_padding)
@@ -238,11 +240,15 @@ class SpERTTrainer(BaseTrainer):
                 batch = util.to_device(batch, self._device)
 
                 # run model (forward pass)
-                result = model(encodings=batch['encodings'], context_masks=batch['context_masks'],
-                               entity_masks=batch['entity_masks'], entity_sizes=batch['entity_sizes'],
-                               entity_spans=batch['entity_spans'], entity_sample_masks=batch['entity_sample_masks'],
-                               inference=True)
-                entity_clf, rel_clf, rels = result
+                result = model(encodings=batch['encodings'],
+                               context_masks=batch['context_masks'],
+                               entity_masks=batch['entity_masks'],
+                               entity_sizes=batch['entity_sizes'],
+                               entity_spans=batch['entity_spans'],
+                               entity_sample_masks=batch['entity_sample_masks'],
+                               inference=True#给定为True表示是评估模式
+                )
+                entity_clf, rel_clf, rels = result#得到实体分类和关系分类的logits，以及关系对索引
 
                 # evaluate batch
                 evaluator.eval_batch(entity_clf, rel_clf, rels, batch)
