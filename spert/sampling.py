@@ -145,16 +145,16 @@ def create_train_sample(doc, neg_entity_count: int, neg_rel_count: int, max_span
 
 def create_eval_sample(doc, max_span_size: int):
     encodings = doc.encoding
-    token_count = len(doc.tokens)
-    context_size = len(encodings)
+    token_count = len(doc.tokens)#实际的token数量
+    context_size = len(encodings)#处理后的上下文长度，也就是编码的长度
 
     # create entity candidates
     entity_spans = []
     entity_masks = []
     entity_sizes = []
 
-    for size in range(1, max_span_size + 1):
-        for i in range(0, (token_count - size) + 1):
+    for size in range(1, max_span_size + 1):#遍历所有可能的实体大小，从1到最大跨度大小
+        for i in range(0, (token_count - size) + 1):#遍历所有可能的起始位置，确保实体不会超出文本范围
             span = doc.tokens[i:i + size].span
             entity_spans.append(span)
             entity_masks.append(create_entity_mask(*span, context_size))
@@ -164,13 +164,13 @@ def create_eval_sample(doc, max_span_size: int):
     # token indices
     _encoding = encodings
     encodings = torch.zeros(context_size, dtype=torch.long)
-    encodings[:len(_encoding)] = torch.tensor(_encoding, dtype=torch.long)
+    encodings[:len(_encoding)] = torch.tensor(_encoding, dtype=torch.long)#将编码转换为张量，并填充到固定大小的张量中
 
     # masking of tokens
     context_masks = torch.zeros(context_size, dtype=torch.bool)
     context_masks[:len(_encoding)] = 1
 
-    # entities
+    # entities 将实体相关的数据转换为张量
     if entity_masks:
         entity_masks = torch.stack(entity_masks)
         entity_sizes = torch.tensor(entity_sizes, dtype=torch.long)
@@ -198,9 +198,14 @@ def create_entity_mask(start, end, context_size):
 
 
 def create_rel_mask(s1, s2, context_size):
+    # s1和s2是两个实体的跨度，形式为(start, end)，获取关系掩码，但是仅包含两个实体之间的文本区域，可以扩充一点上下文，此外也没有考虑实体重叠的情况
     start = s1[1] if s1[1] < s2[0] else s2[1]
     end = s2[0] if s1[1] < s2[0] else s1[0]
     mask = create_entity_mask(start, end, context_size)
+    max_index = max(s1[1], s2[1])
+    min_index = min(s1[0], s2[0])
+    mask[min(min_index-5,1):min_index] = 1#从第2个开始，第一个是cls
+    mask[max(min_index+5,0):max_index] = 1
     return mask
 
 
