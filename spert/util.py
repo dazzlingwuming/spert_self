@@ -2,6 +2,7 @@ import csv
 import json
 import os
 import random
+import re
 import shutil
 
 import numpy as np
@@ -223,3 +224,23 @@ def check_version(config, model_class, model_path):
                    % (model_class.VERSION, loaded_version))
             msg += "Use the code matching your version or train a new model."
             raise Exception(msg)
+
+def creat_text2token(spacy_model:str =None):
+    from spert.opt import spacy
+    nlp_model = spacy.load(spacy_model) if spacy is not None and spacy_model is not None else None #加载spacy模型
+
+    # 检测是否包含中文字符
+    def contains_chinese(text):
+        return bool(re.search(r'[\u4e00-\u9fff]', text))
+
+    def _nlp(text):
+        if nlp_model is not None:
+            return [t.text for t in nlp_model(text)]
+        else:
+            if contains_chinese(text):
+                return list(text)  # 中文按字符分割
+            else:
+                return text.split()  # 英文按空格分割
+
+    return _nlp
+
