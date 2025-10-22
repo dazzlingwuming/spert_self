@@ -2,14 +2,18 @@ import copy
 import multiprocessing as mp
 
 
-def process_configs(target, arg_parser):
+def process_configs(target, arg_parser , mutil_process):
     args, _ = arg_parser.parse_known_args()
-    ctx = mp.get_context('spawn')
+    if mutil_process:
+        ctx = mp.get_context('spawn')
 
-    for run_args, _run_config, _run_repeat in _yield_configs(arg_parser, args):
-        p = ctx.Process(target=target, args=(run_args,))
-        p.start()
-        p.join()
+        for run_args, _run_config, _run_repeat in _yield_configs(arg_parser, args):
+            p = ctx.Process(target=target, args=(run_args,))
+            p.start()
+            p.join()
+    else:
+        for run_args, _run_config, _run_repeat in _yield_configs(arg_parser, args):
+            target(run_args)
 
 
 def _read_config(path):
