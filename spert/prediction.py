@@ -11,29 +11,29 @@ def convert_predictions(batch_entity_clf: torch.tensor, batch_rel_clf: torch.ten
                         batch_rels: torch.tensor, batch: dict, rel_filter_threshold: float,
                         input_reader: BaseInputReader, no_overlapping: bool = False):
     # get maximum activation (index of predicted entity type)
-    batch_entity_types = batch_entity_clf.argmax(dim=-1)
+    batch_entity_types = batch_entity_clf.argmax(dim=-1)#选择每个实体的最大激活值对应的索引作为预测的实体类型
     # apply entity sample mask
     batch_entity_types *= batch['entity_sample_masks'].long()
 
     # apply threshold to relations
-    batch_rel_clf[batch_rel_clf < rel_filter_threshold] = 0
+    batch_rel_clf[batch_rel_clf < rel_filter_threshold] = 0#选择关系分类器输出中小于阈值的部分设为0，表示这些关系不被预测为有效关系
 
     batch_pred_entities = []
     batch_pred_relations = []
 
     for i in range(batch_rel_clf.shape[0]):
         # get model predictions for sample
-        entity_types = batch_entity_types[i]
-        entity_spans = batch['entity_spans'][i]
-        entity_clf = batch_entity_clf[i]
-        rel_clf = batch_rel_clf[i]
-        rels = batch_rels[i]
+        entity_types = batch_entity_types[i]#获取每个样本的实体类型预测
+        entity_spans = batch['entity_spans'][i]#获取每个样本的实体跨度
+        entity_clf = batch_entity_clf[i]#获取每个样本的实体分类器输出
+        rel_clf = batch_rel_clf[i]#获取每个样本的关系分类器输出
+        rels = batch_rels[i]#获取每个样本的关系对索引
 
-        # convert predicted entities
+        # convert predicted entities 提取实体，输出是一个包含实体信息的列表，每个实体信息包括起始位置、结束位置、实体类型和置信度分数
         sample_pred_entities = _convert_pred_entities(entity_types, entity_spans,
                                                       entity_clf, input_reader)
 
-        # convert predicted relations
+        # convert predicted relations 提取关系，输出是一个包含关系信息的列表，每个关系信息包括头实体信息、尾实体信息、关系类型和置信度分数
         sample_pred_relations = _convert_pred_relations(rel_clf, rels,
                                                         entity_types, entity_spans, input_reader)
 
@@ -73,21 +73,21 @@ def _convert_pred_entities(entity_types: torch.tensor, entity_spans: torch.tenso
 
 def _convert_pred_relations(rel_clf: torch.tensor, rels: torch.tensor,
                             entity_types: torch.tensor, entity_spans: torch.tensor, input_reader: BaseInputReader):
-    rel_class_count = rel_clf.shape[1]
-    rel_clf = rel_clf.view(-1)
+    rel_class_count = rel_clf.shape[1]#关系类别的数量
+    rel_clf = rel_clf.view(-1)#将关系分类器的输出张量展平为一维张量，以便后续处理 [num_relations * rel_class_count]
 
     # get predicted relation labels and corresponding entity pairs
-    rel_nonzero = rel_clf.nonzero().view(-1)
+    rel_nonzero = rel_clf.nonzero().view(-1)#获取所有非零的关系预测索引，这些索引对应于被预测为有效关系的实体对
     pred_rel_scores = rel_clf[rel_nonzero]
 
-    pred_rel_types = (rel_nonzero % rel_class_count) + 1  # model does not predict None class (+1)
-    valid_rel_indices = rel_nonzero // rel_class_count
-    valid_rels = rels[valid_rel_indices]
+    pred_rel_types = (rel_nonzero % rel_class_count) + 1  # model does not predict None class (+1) 这里获取所有非零位置下的预测类别
+    valid_rel_indices = rel_nonzero // rel_class_count #获取关系实体实际id
+    valid_rels = rels[valid_rel_indices] #提取最终预测的实体对
 
     # get masks of entities in relation
-    pred_rel_entity_spans = entity_spans[valid_rels].long()
+    pred_rel_entity_spans = entity_spans[valid_rels].long()#提取两个实体的索引范围
 
-    # get predicted entity types
+    # get predicted entity types 对应实体的类型，提取的是实体对中每个实体的类型（预测）
     pred_rel_entity_types = torch.zeros([valid_rels.shape[0], 2])
     if valid_rels.shape[0] != 0:
         pred_rel_entity_types = torch.stack([entity_types[valid_rels[j]] for j in range(valid_rels.shape[0])])
@@ -97,12 +97,12 @@ def _convert_pred_relations(rel_clf: torch.tensor, rels: torch.tensor,
     check = set()
 
     for i in range(pred_rel_types.shape[0]):
-        label_idx = pred_rel_types[i].item()
-        pred_rel_type = input_reader.get_relation_type(label_idx)
-        pred_head_type_idx, pred_tail_type_idx = pred_rel_entity_types[i][0].item(), pred_rel_entity_types[i][1].item()
-        pred_head_type = input_reader.get_entity_type(pred_head_type_idx)
-        pred_tail_type = input_reader.get_entity_type(pred_tail_type_idx)
-        score = pred_rel_scores[i].item()
+        label_idx = pred_rel_types[i].item()#获取关系类型的预测索引
+        pred_rel_type = input_reader.get_relation_type(label_idx)#根据索引获取关系类型对象
+        pred_head_type_idx, pred_tail_type_idx = pred_rel_entity_types[i][0].item(), pred_rel_entity_types[i][1].item()#获取头实体和尾实体的类型索引
+        pred_head_type = input_reader.get_entity_type(pred_head_type_idx)#获取头实体的类型对象
+        pred_tail_type = input_reader.get_entity_type(pred_tail_type_idx)#获取尾实体的类型对象
+        score = pred_rel_scores[i].item()#获取关系的置信度分数
 
         spans = pred_rel_entity_spans[i]
         head_start, head_end = spans[0].tolist()
@@ -161,6 +161,13 @@ def _adjust_rel(rel: Tuple):
 
 
 def store_predictions(documents, pred_entities, pred_relations, store_path):
+    predictions = text_predictions(documents, pred_entities, pred_relations)
+
+    # store as json
+    with open(store_path, 'w') as predictions_file:
+        json.dump(predictions, predictions_file)
+
+def text_predictions(documents, pred_entities, pred_relations):
     predictions = []
 
     for i, doc in enumerate(documents):
@@ -204,6 +211,4 @@ def store_predictions(documents, pred_entities, pred_relations, store_path):
                                relations=converted_relations)
         predictions.append(doc_predictions)
 
-    # store as json
-    with open(store_path, 'w') as predictions_file:
-        json.dump(predictions, predictions_file)
+    return predictions
