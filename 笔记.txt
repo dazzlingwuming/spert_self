@@ -25,3 +25,6 @@ xx领域的知识图谱构建
         -1.辅助xx领域研究人员进行文献综述和信息检索，提高研究效率。
         -2.支持xx领域的智能问答系统，帮助用户快速获取所需信息。
         -3.为xx领域的决策支持系统提供数据支持，辅助决策制定。
+    -4.参考：
+        https://github.com/qq547276542/Agriculture_KnowledgeGraph
+        https://github.com/zhangyqCS/KnowledgeGraph_Agriculture
